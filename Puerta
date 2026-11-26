@@ -1,0 +1,127 @@
+#include "BluetoothSerial.h"
+#include <ESP32Servo.h>
+
+BluetoothSerial BT;
+Servo puerta;
+
+// Pines del ESP32
+const int TRIG = 23;
+const int ECHO = 22;
+const int PIN_SERVO = 18;
+const int LED_ROJO = 21;
+const int LED_VERDE = 19;
+
+// Angulos del servo
+const int ANG_CERRADA = 0;
+const int ANG_ABIERTA = 90;
+
+// Distancia para abrir la puerta
+const int UMBRAL = 20;
+
+unsigned long tiempoAnterior = 0;
+const unsigned long INTERVALO = 200;
+
+bool abiertaBluetooth = false;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Bluetooth
+  BT.begin("Puerta de TATO");
+  Serial.println("Bluetooth: Puerta de TATO");
+
+  // Sensor ultrasonico
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+
+  // LEDs
+  pinMode(LED_ROJO, OUTPUT);
+  pinMode(LED_VERDE, OUTPUT);
+
+  // Servomotor
+  puerta.setPeriodHertz(50);
+  puerta.attach(PIN_SERVO, 500, 2400);
+  puerta.write(ANG_CERRADA);
+
+  digitalWrite(LED_ROJO, HIGH);
+  digitalWrite(LED_VERDE, LOW);
+
+  Serial.println("Puerta automatica lista");
+}
+
+long medirDistancia() {
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  long duracion = pulseIn(ECHO, HIGH, 30000);
+
+  if (duracion == 0) {
+    return -1;
+  }
+
+  return duracion / 58;
+}
+
+void abrirPuerta() {
+  puerta.write(ANG_ABIERTA);
+  digitalWrite(LED_ROJO, LOW);
+  digitalWrite(LED_VERDE, HIGH);
+}
+
+void cerrarPuerta() {
+  puerta.write(ANG_CERRADA);
+  digitalWrite(LED_ROJO, HIGH);
+  digitalWrite(LED_VERDE, LOW);
+}
+
+void loop() {
+  long distancia = medirDistancia();
+
+  // Control automatico por distancia
+  if (distancia >= 0) {
+    if (distancia < UMBRAL) {
+      abrirPuerta();
+    } else if (!abiertaBluetooth) {
+      cerrarPuerta();
+    }
+  }
+
+  // Enviar distancia por Bluetooth cada 200 ms
+  if (millis() - tiempoAnterior >= INTERVALO) {
+    tiempoAnterior = millis();
+
+    if (distancia >= 0) {
+      BT.println(distancia);
+
+      Serial.print("Distancia: ");
+      Serial.print(distancia);
+      Serial.println(" cm");
+    } else {
+      BT.println(-1);
+      Serial.println("Sin lectura del sensor");
+    }
+  }
+
+  // Recibir comandos del celular
+  while (BT.available()) {
+    char c = BT.read();
+
+    if (c == 'C' || c == 'c') {
+      abiertaBluetooth = true;
+      abrirPuerta();
+      Serial.println("Puerta abierta por Bluetooth");
+    }
+
+    if (c == 'L' || c == 'l') {
+      abiertaBluetooth = false;
+      cerrarPuerta();
+      Serial.println("Puerta cerrada por Bluetooth");
+    }
+  }
+
+  delay(50);
+}
