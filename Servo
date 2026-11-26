@@ -1,0 +1,101 @@
+#include "BluetoothSerial.h"
+#include <ESP32Servo.h> // Librería para manejar servos en ESP32
+
+// Verificar si Bluetooth está habilitado en el ESP32
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to enable it
+#endif
+
+BluetoothSerial SerialBT;
+Servo miServo; // Crear el objeto para el servomotor
+
+// Pines del sensor HC-SR04
+const int TRIG = 5;
+const int ECHO = 18;
+
+// Pines de los LEDs
+const int LED_VERDE = 26;
+const int LED_ROJO = 25;
+
+// Pin de control del servomotor
+const int PIN_SERVO = 13; 
+
+long duracion;
+float distancia;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Inicializar Bluetooth con un nombre
+  SerialBT.begin("ESP32_TATO"); 
+  Serial.println("El dispositivo Bluetooth está iniciado. Ya puedes emparejarlo.");
+
+  // Inicializar el servomotor indicando su pin
+  miServo.attach(PIN_SERVO);
+  miServo.write(0); // Posición inicial del servo (0 grados)
+
+  // Configuración de pines de sensores y leds
+  pinMode(TRIG, OUTPUT);
+  pinMode(ECHO, INPUT);
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_ROJO, OUTPUT);
+}
+
+void loop() {
+  // Enviar pulso ultrasónico
+  digitalWrite(TRIG, LOW);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIG, LOW);
+
+  // Leer el tiempo del eco
+  duracion = pulseIn(ECHO, HIGH, 30000);
+
+  // Calcular distancia en centímetros
+  if (duracion == 0) {
+    Serial.println("Sin lectura del sensor");
+    digitalWrite(LED_VERDE, LOW);
+    digitalWrite(LED_ROJO, LOW);
+  } else {
+    distancia = duracion * 0.0343 / 2;
+
+    // Mostrar en el monitor serie USB
+    Serial.print("Distancia: ");
+    Serial.print(distancia);
+    Serial.println(" cm");
+
+    // 1. Primero enviamos la distancia numérica (para que la app calcule y grafique)
+    SerialBT.println(distancia);
+    
+    // Pequeña pausa opcional para evitar saturar el búfer de envío Bluetooth
+    delay(20);
+
+    // Lógica según la distancia medida y envío del estado de la puerta
+    if (distancia > 20) {
+      digitalWrite(LED_VERDE, HIGH);
+      digitalWrite(LED_ROJO, LOW);
+      miServo.write(0);  // Mueve el servo a 0° cuando está lejos
+      
+      // Enviar estado para la etiqueta de la puerta en la app
+      SerialBT.println("CERRADA"); 
+    } else {
+      digitalWrite(LED_VERDE, LOW);
+      digitalWrite(LED_ROJO, HIGH);
+      miServo.write(90); // Mueve el servo a 90° cuando está cerca
+      
+      // Enviar estado para la etiqueta de la puerta en la app
+      SerialBT.println("ABIERTA"); 
+    }
+  }
+
+  // Leer comandos entrantes desde la App de App Inventor (opcional)
+  if (SerialBT.available()) {
+    char comando = SerialBT.read();
+    Serial.print("Comando recibido de la App: ");
+    Serial.println(comando);
+  }
+
+  delay(200);
+}
